@@ -25,7 +25,7 @@ def constructG(filename):
     return G
 
 def SIR(G, infected, beta, miu):
-    N = 1000
+    N = 100
     re = 0
     beta = beta*UC
     while N > 0:
@@ -46,7 +46,7 @@ def SIR(G, infected, beta, miu):
             inf = set(newInf)
         re += len(R)+len(inf)
         N -= 1
-    return re/1000.0
+    return re/100.0
 
 def betweenness(G):
     return [x[0] for x in sorted(nx.betweenness_centrality(G).items(), key=lambda x: x[1], reverse=True)]
@@ -90,6 +90,81 @@ def VoteRank(G):
             remain.append((node, G.degree(node)))
     remain =[ x[0] for x in sorted(remain, key=lambda x:x[1], reverse=True)]
     return rank+remain
+
+def H(array):
+    narray = sorted(array, reverse=True)
+    for i in range(len(narray)):
+        if narray[i] < i + 1:
+            return i
+    return len(narray)
+def H_index(G, k):
+    N = 1
+    HK = {}
+    tempDict = {}
+    for node in G.nodes():
+        tempDict[node] = G.degree(node)
+    HK[0] = tempDict
+    while N <= k:
+        tempDict = {}
+        for node in G.nodes():
+            tempArray = []
+            for neighbor in G.neighbors(node):
+                tempArray.append(HK[N-1][neighbor])
+            tempDict[node] = H(tempArray)
+        HK[N] = tempDict
+        N = N + 1
+    rank = [x[0] for x in sorted(HK[k].items(), key=lambda x: x[1], reverse=True)]
+
+    return rank
+
+def PPD(G, beta):
+    rank = {}
+    for node in G.nodes():
+        rank[node] = 0
+        N1 = list(G.neighbors(node))
+        N2 = []
+        N3 = []
+        for n1 in N1:
+            for neighbor in G.neighbors(n1):
+                if neighbor not in N1:
+                    N2.append(neighbor)
+        for n2 in N2:
+            for neighbor in G.neighbors(n2):
+                if neighbor not in N1 and neighbor not in N2:
+                    N3.append(neighbor)
+        SK = {}
+
+        tempDict = {}
+        tempDict[node] = 1
+        SK[0] = tempDict  # score(u,0)=1
+
+        tempDict = {}
+        for n1 in N1:
+            tempDict[n1] = beta
+        SK[1] = tempDict
+
+        tempDict = {}
+        for n2 in N2:
+            tempDict[n2] = 1
+            for n1 in N1:
+                if G.has_edge(n2, n1):
+                    tempDict[n2] = tempDict[n2]*(1 - SK[1][n1]*beta)
+            tempDict[n2] = 1 - tempDict[n2]
+        SK[2] = tempDict
+
+        tempDict = {}
+        for n3 in N3:
+            tempDict[n3] = 1
+            for n2 in N2:
+                if G.has_edge(n3, n2):
+                    tempDict[n3] = tempDict[n3] * (1 - SK[2][n2] * beta)
+            tempDict[n3] = 1 - tempDict[n3]
+        SK[3] = tempDict
+
+        for i in range(4):
+            for key in SK[i].keys():
+                rank[node] += SK[i][key]
+    return [x[0] for x in sorted(rank.items(), key=lambda x: x[1], reverse=True)]
 
 def NeighborMatrix(G, k):
     NM = {}
@@ -273,11 +348,11 @@ def draw_k(networks, r):
         plt.plot(K, BA1000_2, 'r', label='BA1000_2', marker='o')
         plt.plot(K, BA1000_5, 'g', label='BA1000_5', marker='*')
         plt.plot(K, BA1000_10, 'b', label='BA1000_10', marker='')
-        plt.title(G.name)
-        plt.legend(loc='best', fontsize=14)
+        if i == 0:
+            plt.legend(loc='best', fontsize=14)
         plt.xticks(fontsize=20)
         plt.yticks(fontsize=20)
-        plt.xlabel('k', fontsize=30)
+        plt.xlabel('L', fontsize=30)
         plt.ylabel('corr', fontsize=30)
         plt.ylim(-0.3, 1)
         plt.gca().yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
@@ -295,10 +370,12 @@ def heatmap(networks):
             G = constructG(networks[i])
         tempR = []
         for j in X:
+            print(j)
             for k in X:
+                print(k)
                 tempR.append(corr(G, 28, j, k, 'BA1000_2'))# 28, 'BA1000_2'
         plt.subplot(3, 3, i+1)
-        y = np.array(tempR).reshape((10, 10))
+        y = np.array(tempR).reshape((11, 11))
         df = pd.DataFrame(y)
         sns.heatmap(df, annot=False, vmin=0, vmax=1, xticklabels=X, yticklabels=X)
         plt.title(G.name, fontsize=20)
@@ -307,42 +384,205 @@ def heatmap(networks):
 
     plt.show()
 
-
-
-
-if __name__ == '__main__':
-    # K = [x for x in range(8, 48, 4)]
+def compareAll(networks):
     X = [x / 10.0 for x in range(10, 21)]
-    networks = ['BA2000_2', 'BA2000_5', 'BA2000_10',
-                'Jazz', 'Email', 'Oz',
-                'router', 'faa', 'facebook'
-                ]
+    fig, ax = plt.subplots(nrows=3, ncols=3)
+    for i in range(len(networks)):
+        print(networks[i])
+        if i < 3:
+            G = nx.read_edgelist('networks/' + networks[i])
+            G.name = networks[i]
+        else:
+            G = constructG(networks[i])
+
+        nodes = list(G.nodes())
+        D = np.array(nodesRank(degree(G)), dtype=float)
+        B = np.array(nodesRank(betweenness(G)), dtype=float)
+        VR = np.array(nodesRank(VoteRank(G)), dtype=float)
+        Kshell = np.array(nodesRank(kShell(G)), dtype=float)
+
+        test_dataset = Dataset(G.name, 28, 1.5)
+        test_loader = DataLoader(test_dataset, batch_size=G.number_of_nodes(),  # 分批次训练
+                                 shuffle=False)
+        rankCNN = PredictNodeByCNN(nodes, test_loader, 28, 1.5, 'BA1000_2', False)
+        rankCNN = np.array(nodesRank(rankCNN), dtype=float)
+
+        tempD = []
+        tempB = []
+        tempVR = []
+        tempKshell = []
+        tempCNN = []
+
+        for j in X:
+            print(j)
+            label = np.load('data_model_1/' + G.name + '_'+str(j)+'_label.npy')
+            real = MakeReal(label, nodes)
+
+            df = pd.DataFrame({'real': np.array(nodesRank(real), dtype=float),
+                               'degree': D
+                               })
+            tempD.append(df.corr('kendall')['real']['degree'])
+
+            df = pd.DataFrame({'real': np.array(nodesRank(real), dtype=float),
+                               'betweenness': B
+                               })
+            tempB.append(df.corr('kendall')['real']['betweenness'])
+
+            df = pd.DataFrame({'real': np.array(nodesRank(real), dtype=float),
+                               'VR': VR
+                               })
+            tempVR.append(df.corr('kendall')['real']['VR'])
+
+            df = pd.DataFrame({'real': np.array(nodesRank(real), dtype=float),
+                               'Kshell': Kshell
+                               })
+            tempKshell.append(df.corr('kendall')['real']['Kshell'])
+
+            df = pd.DataFrame({'real': np.array(nodesRank(real), dtype=float),
+                               'CNN': rankCNN
+                               })
+            tempCNN.append(df.corr('kendall')['real']['CNN'])
+        plt.subplot(3, 3, i + 1)
+        plt.plot(X, tempCNN, 'r', label='RCNN', marker='o')
+        plt.plot(X, tempB, 'g', label='betweenness', marker='*')
+        plt.plot(X, tempVR, 'b', label='VoteRank', marker='v')
+        plt.plot(X, tempKshell, 'b', label='k-shell', marker='<')
+        plt.plot(X, tempD, 'k', label='degree', marker='>')
+        if i==0:
+            plt.legend(loc='best', fontsize=14)
+        plt.xticks(fontsize=20)
+        plt.yticks(fontsize=20)
+        plt.xlabel(r'$\mu/\mu_{c}$', fontsize=30)
+        plt.ylabel('corr', fontsize=30)
+        plt.ylim(0, 1)
+        plt.gca().yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+    plt.show()
+
+def compareAll_topK(networks, k):
+    X = [x / 10.0 for x in range(10, 21)]
+    fig, ax = plt.subplots(nrows=3, ncols=3)
+    for i in range(len(networks)):
+        print(networks[i])
+        if i < 3:
+            G = nx.read_edgelist('networks/' + networks[i])
+            G.name = networks[i]
+        else:
+            G = constructG(networks[i])
+
+        k1 = 0.0
+        k2 = 0.0
+        for j in G.degree():
+            k1 = k1 + j[1]
+            k2 = k2 + j[1] ** 2
+        global UC
+        UC = k1 / (k2 - k1)
+
+        nodes = list(G.nodes())
+        N = G.number_of_nodes()
+        D = degree(G)[:int(N*k)]
+        B = betweenness(G)[:int(N*k)]
+        VR = VoteRank(G)[:int(N*k)]
+        Kshell = kShell(G)[:int(N*k)]
+
+        test_dataset = Dataset(G.name, 28, 1.5)
+        test_loader = DataLoader(test_dataset, batch_size=G.number_of_nodes(),  # 分批次训练
+                                 shuffle=False)
+        rankCNN = PredictNodeByCNN(nodes, test_loader, 28, 1.5, 'BA1000_2', False)[:int(N*k)]
+
+        tempD = []
+        tempB = []
+        tempVR = []
+        tempKshell = []
+        tempCNN = []
+
+        for j in X:
+            print(j)
+            tempD.append(SIR(G, D, j, 1)/N)
+            tempB.append(SIR(G, B, j, 1)/N)
+            tempVR.append(SIR(G, VR, j, 1)/N)
+            tempKshell.append(SIR(G, Kshell, j, 1)/N)
+            tempCNN.append(SIR(G, rankCNN, j, 1)/N)
+        plt.subplot(3, 3, i + 1)
+        plt.plot(X, tempCNN, 'r', label='CNN', marker='o')
+        plt.plot(X, tempB, 'g', label='Betweenness', marker='*')
+        plt.plot(X, tempVR, 'b', label='VoteRank', marker='v')
+        plt.plot(X, tempKshell, 'b', label='Kshell', marker='<')
+        plt.plot(X, tempD, 'k', label='Degree', marker='>')
+        if i==0:
+            plt.legend(loc='best', fontsize=14)
+        plt.xticks(fontsize=20)
+        plt.yticks(fontsize=20)
+        plt.xlabel(r'$\mu/\mu_{c}$', fontsize=30)
+        plt.ylabel('Rs', fontsize=30)
+        plt.ylim(0, 1)
+        plt.gca().yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+    plt.show()
+
+def networkFeat(networks):
+    for i in range(len(networks)):
+        print(networks[i])
+        if i < 3:
+            G = nx.read_edgelist('networks/' + networks[i])
+            G.name = networks[i]
+        else:
+            G = constructG(networks[i])
+        print(G.number_of_nodes(),G.number_of_edges())
+        k=float(G.number_of_edges()*2)/G.number_of_nodes()
+        print(k)#平均度
+        print(list(sorted(G.degree(),key=lambda x:x[1],reverse=True)[0])[1])
+        print(nx.average_clustering(G))#网络聚集系数
+        k2=0.0
+        temp = G.degree()
+        for i in temp:
+            k2=k2+i[1]**2
+        k2=k2/G.number_of_nodes()
+        print(k2/k**2)
+
+
+
+# if __name__ == '__main__':
+    # K = [x for x in range(8, 48, 4)]
+    # X = [x / 10.0 for x in range(10, 21)]
+    # trains = ['BA1000_2', 'BA1000_5', 'BA1000_10']
+    # networks = ['BA2000_2', 'BA2000_5', 'BA2000_10',
+    #             'Jazz', 'Email', 'Oz',
+    #             'Router', 'Faa', 'Facebook'
+    #             ]
+    # draw_k(networks, 1.5)
+    # heatmap(networks)
+    # compareAll(networks)
+    # compareAll_topK(networks, 0.01)
+    # networkFeat(trains+networks)
 
     # G = constructG('facebook')
+    # print(degree(G))
+    # print(betweenness(G))
+    # print(VoteRank(G))
+    # print(kShell(G))
     # G = nx.read_edgelist('networks/BA1000_2')
     # G.name = 'BA1000_2'
     # print(nx.is_connected(G))
     # print(G.number_of_nodes(), G.number_of_edges(), G.number_of_edges() * 2 / G.number_of_nodes())
-    for i in range(len(networks)):
-        if i<3:
-            G = nx.read_edgelist('networks/'+networks[i])
-            G.name = networks[i]
-        else:
-            G = constructG(networks[i])
-        k1 = 0.0
-        k2 = 0.0
-        for i in G.degree():
-            k1 = k1 + i[1]
-            k2 = k2 + i[1] ** 2
-        global UC
-        UC = k1 / (k2 - k1)
-
-        for x in X:
-            label = []
-            for node in G.nodes():
-                label.append([SIR(G, [node], x, 1)])
-            np.save('data_model_1/' + G.name + '_' + str(x) + '_label.npy', np.array(label))
-        print('标签生成成功')
+    # for i in range(len(networks)):
+    #     if i<3:
+    #         G = nx.read_edgelist('networks/'+networks[i])
+    #         G.name = networks[i]
+    #     else:
+    #         G = constructG(networks[i])
+    #     k1 = 0.0
+    #     k2 = 0.0
+    #     for i in G.degree():
+    #         k1 = k1 + i[1]
+    #         k2 = k2 + i[1] ** 2
+    #     global UC
+    #     UC = k1 / (k2 - k1)
+    #
+    #     for x in X:
+    #         label = []
+    #         for node in G.nodes():
+    #             label.append([SIR(G, [node], x, 1)])
+    #         np.save('data_model_1/' + G.name + '_' + str(x) + '_label.npy', np.array(label))
+    #     print('标签生成成功')
     #
 
 
