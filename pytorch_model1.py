@@ -49,6 +49,8 @@ def SIR(G, infected, beta, miu):
     return re/100.0
 
 def betweenness(G):
+    if G.number_of_nodes()>1000:
+        return [x[0] for x in sorted(nx.betweenness_centrality(G, k=100).items(), key=lambda x: x[1], reverse=True)]
     return [x[0] for x in sorted(nx.betweenness_centrality(G).items(), key=lambda x: x[1], reverse=True)]
 
 def degree(G):
@@ -118,6 +120,12 @@ def H_index(G, k):
     return rank
 
 def PPD(G, beta):
+    k1 = 0.0
+    k2 = 0.0
+    for i in G.degree():
+        k1 = k1 + i[1]
+        k2 = k2 + i[1] ** 2
+    UC = k1 / (k2 - k1)
     rank = {}
     for node in G.nodes():
         rank[node] = 0
@@ -140,7 +148,7 @@ def PPD(G, beta):
 
         tempDict = {}
         for n1 in N1:
-            tempDict[n1] = beta
+            tempDict[n1] = beta*UC
         SK[1] = tempDict
 
         tempDict = {}
@@ -148,7 +156,7 @@ def PPD(G, beta):
             tempDict[n2] = 1
             for n1 in N1:
                 if G.has_edge(n2, n1):
-                    tempDict[n2] = tempDict[n2]*(1 - SK[1][n1]*beta)
+                    tempDict[n2] = tempDict[n2]*(1 - SK[1][n1]*beta*UC)
             tempDict[n2] = 1 - tempDict[n2]
         SK[2] = tempDict
 
@@ -157,7 +165,7 @@ def PPD(G, beta):
             tempDict[n3] = 1
             for n2 in N2:
                 if G.has_edge(n3, n2):
-                    tempDict[n3] = tempDict[n3] * (1 - SK[2][n2] * beta)
+                    tempDict[n3] = tempDict[n3] * (1 - SK[2][n2] * beta*UC)
             tempDict[n3] = 1 - tempDict[n3]
         SK[3] = tempDict
 
@@ -187,20 +195,26 @@ def NeighborMatrix(G, k):
                     NM[node] = neighbors
                     break
             seeds = new_seeds
+            if len(seeds) == 0:
+                NM[node] = neighbors
+                break
 
     for node in NM.keys():
         subM = nx.adjacency_matrix(G, NM[node]).todense()
-        for i in range(k):
+        for i in range(len(subM)):
             subM[i, i] = G.degree(NM[node][i])
             if i == 0:
-                for j in range(1, k):
+                for j in range(1, len(subM)):
                     if subM[i, j] == 1:
                         subM[i, j] = G.degree(NM[node][j])
                         subM[j, i] = subM[i, j]
         returnVect = []
         for i in range(k):
             for j in range(k):
-                returnVect.append(subM[i, j])
+                if i >= len(subM) or j >= len(subM):
+                    returnVect.append(0)
+                else:
+                    returnVect.append(subM[i, j])
         returnVect = np.array(returnVect)
         Re = returnVect.reshape(1, k, k)
         # returnVect = np.zeros((1, k*k))
@@ -282,7 +296,7 @@ def PredictNodeByCNN(nodes, data, k, beta, TrainName, is_train):
                 state = {'net':cnn.state_dict(),
                          'optimizer':optimizer.state_dict(),
                          'epoch':epoch+1}
-                torch.save(state, 'data_model_1/'+TrainName+'_'+str(k)+'_'+str(beta)+'.pth')
+                torch.save(state, 'ttt/'+TrainName+'_'+str(k)+'_'+str(beta)+'.pth')
     else:
         checkpoint = torch.load('data_model_1/'+TrainName+'_'+str(k)+'_'+str(beta)+'.pth')
         cnn.load_state_dict(checkpoint['net'])
@@ -304,13 +318,12 @@ def MakeReal(label, nodes):
     return real
 
 def nodesRank(rank):
+    SR = sorted(rank)
     re = []
-    try:
-        for i in range(len(rank)):
-            re.append(rank.index(str(i)))
-    except:
-        for i in range(1, len(rank)+1):
-            re.append(rank.index(str(i)))
+
+    for i in SR:
+        re.append(rank.index(i))
+
     return re
 
 def corr(G, k, beta_t, beta, train):
@@ -327,47 +340,64 @@ def corr(G, k, beta_t, beta, train):
     return df.corr('kendall')['real']['CNN']
 
 #在不同训练集上，相关性随K的变化(训练感染概率=真实感染概率=1.5)
-def draw_k(networks, r):
+def draw_k(r):
+    networks = ['BA2000_2','BA2000_5','BA2000_10',
+                'BA4000_2', 'BA4000_5', 'BA4000_10',
+                'BA8000_2', 'BA8000_5', 'BA8000_10'
+    ]
     fig, ax = plt.subplots(nrows=3, ncols=3)
     for i in range(len(networks)):
-        if i<3:
-            G = nx.read_edgelist('networks/'+networks[i])
-            G.name = networks[i]
-        else:
-            G = constructG(networks[i])
+        print(i)
+        G = nx.read_edgelist('networks/'+networks[i])
+        G.name = networks[i]
         K = [x for x in range(8, 48, 4)]
         BA1000_2 = []
         BA1000_5 = []
         BA1000_10 = []
+        BA3000_2 = []
+        BA3000_5 = []
+        BA3000_10 = []
         for k in K:
             print(k)
             BA1000_2.append(corr(G, k, r, r, 'BA1000_2'))
             BA1000_5.append(corr(G, k, r, r, 'BA1000_5'))
             BA1000_10.append(corr(G, k, r, r, 'BA1000_10'))
+            BA3000_2.append(corr(G, k, r, r, 'BA3000_2'))
+            BA3000_5.append(corr(G, k, r, r, 'BA3000_5'))
+            BA3000_10.append(corr(G, k, r, r, 'BA3000_10'))
         plt.subplot(3, 3, i+1)
-        plt.plot(K, BA1000_2, 'r', label='BA1000_2', marker='o')
-        plt.plot(K, BA1000_5, 'g', label='BA1000_5', marker='*')
-        plt.plot(K, BA1000_10, 'b', label='BA1000_10', marker='')
-        if i == 0:
-            plt.legend(loc='best', fontsize=14)
+        plt.plot(K, BA1000_2, 'r', label='Train_1000_4', marker='o')
+        plt.plot(K, BA1000_5, 'b', label='Train_1000_10', marker='*')
+        plt.plot(K, BA1000_10, 'g', label='Train_1000_20', marker='^')
+        plt.plot(K, BA3000_2, 'r', label='Train_3000_4', marker='v')
+        plt.plot(K, BA3000_5, 'b', label='Train_3000_10', marker='<')
+        plt.plot(K, BA3000_10, 'g', label='Train_3000_20', marker='>')
+        if i == 2:
+            plt.legend(loc='best', fontsize=15)
         plt.xticks(fontsize=20)
         plt.yticks(fontsize=20)
-        plt.xlabel('L', fontsize=30)
-        plt.ylabel('corr', fontsize=30)
-        plt.ylim(-0.3, 1)
+        plt.xlabel('L', fontsize=25)
+        plt.ylabel('corr', fontsize=25)
+        plt.ylim(0, 1)
         plt.gca().yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
     plt.savefig('results/all_k.png')
     plt.show()
 
-def heatmap(networks):
+def heatmap():
+    networks = ['BA2000_2', 'BA2000_5', 'BA2000_10',
+                'BA4000_2', 'BA4000_5', 'BA4000_10',
+                'BA8000_2', 'BA8000_5', 'BA8000_10'
+                ]
+
+    titles = ['Test_2000_4', 'Test_2000_10', 'Test_2000_20',
+                'Test_4000_4', 'Test_4000_10', 'Test_4000_20',
+                'Test_8000_4', 'Test_8000_10', 'Test_8000_20'
+                ]
     X = [x / 10.0 for x in range(10, 21)]
     fig, ax = plt.subplots(nrows=3, ncols=3)
     for i in range(len(networks)):
-        if i < 3:
-            G = nx.read_edgelist('networks/' + networks[i])
-            G.name = networks[i]
-        else:
-            G = constructG(networks[i])
+        G = nx.read_edgelist('networks/' + networks[i])
+        G.name = networks[i]
         tempR = []
         for j in X:
             print(j)
@@ -378,29 +408,39 @@ def heatmap(networks):
         y = np.array(tempR).reshape((11, 11))
         df = pd.DataFrame(y)
         sns.heatmap(df, annot=False, vmin=0, vmax=1, xticklabels=X, yticklabels=X)
-        plt.title(G.name, fontsize=20)
-        plt.xlabel(r'$\mu/\mu_{c}$', fontsize=20)
-        plt.ylabel(r'$\mu_{t}/\mu_{c}$', fontsize=20)
+        plt.title(titles[i], fontsize=20)
+        plt.xlabel(r'$\mu/\mu_{c}$', fontsize=25)
+        plt.ylabel(r'$\mu_{t}/\mu_{c}$', fontsize=25)
+        plt.tick_params(labelsize=20)
+        plt.xticks()
 
     plt.show()
 
-def compareAll(networks):
+def compareAll():
+    networks = ['Email', 'NS', 'USAir',
+                'Jazz', 'Oz',
+                'Router', 'Faa',
+                'figeys','Sex'
+         ]
     X = [x / 10.0 for x in range(10, 21)]
     fig, ax = plt.subplots(nrows=3, ncols=3)
     for i in range(len(networks)):
         print(networks[i])
-        if i < 3:
-            G = nx.read_edgelist('networks/' + networks[i])
-            G.name = networks[i]
-        else:
-            G = constructG(networks[i])
-
+        G = constructG(networks[i])
         nodes = list(G.nodes())
         D = np.array(nodesRank(degree(G)), dtype=float)
         B = np.array(nodesRank(betweenness(G)), dtype=float)
         VR = np.array(nodesRank(VoteRank(G)), dtype=float)
         Kshell = np.array(nodesRank(kShell(G)), dtype=float)
+        Hindex = np.array(nodesRank(H_index(G, 1)), dtype=float)
+        # try:
+        #     DR = np.load('data_model_1/' + G.name + '_DR.npy')
+        # except:
+        #     DR = np.array(nodesRank(PPD(G, 1.5)), dtype=float)
+        #     np.save('data_model_1/' + G.name + '_DR.npy', DR)
 
+
+        print('xxxx')
         test_dataset = Dataset(G.name, 28, 1.5)
         test_loader = DataLoader(test_dataset, batch_size=G.number_of_nodes(),  # 分批次训练
                                  shuffle=False)
@@ -411,6 +451,8 @@ def compareAll(networks):
         tempB = []
         tempVR = []
         tempKshell = []
+        tempHindex = []
+        # tempDR = []
         tempCNN = []
 
         for j in X:
@@ -439,35 +481,48 @@ def compareAll(networks):
             tempKshell.append(df.corr('kendall')['real']['Kshell'])
 
             df = pd.DataFrame({'real': np.array(nodesRank(real), dtype=float),
+                               'Hindex': Hindex
+                               })
+            tempHindex.append(df.corr('kendall')['real']['Hindex'])
+
+            # df = pd.DataFrame({'real': np.array(nodesRank(real), dtype=float),
+            #                    'DR': DR
+            #                    })
+            # tempDR.append(df.corr('kendall')['real']['DR'])
+
+            df = pd.DataFrame({'real': np.array(nodesRank(real), dtype=float),
                                'CNN': rankCNN
                                })
             tempCNN.append(df.corr('kendall')['real']['CNN'])
         plt.subplot(3, 3, i + 1)
         plt.plot(X, tempCNN, 'r', label='RCNN', marker='o')
-        plt.plot(X, tempB, 'g', label='betweenness', marker='*')
-        plt.plot(X, tempVR, 'b', label='VoteRank', marker='v')
+        plt.plot(X, tempB, 'g', label='Betweenness', marker='*')
+        #plt.plot(X, tempVR, 'b', label='VoteRank', marker='v')
         plt.plot(X, tempKshell, 'b', label='k-shell', marker='<')
-        plt.plot(X, tempD, 'k', label='degree', marker='>')
+        plt.plot(X, tempD, 'k', label='Degree', marker='>')
+        plt.plot(X, tempHindex, 'k', label='H-index', marker='^')
+        # plt.plot(X, tempDR, 'g', label='DynamicRank', marker='.')
         if i==0:
             plt.legend(loc='best', fontsize=14)
         plt.xticks(fontsize=20)
         plt.yticks(fontsize=20)
-        plt.xlabel(r'$\mu/\mu_{c}$', fontsize=30)
-        plt.ylabel('corr', fontsize=30)
+        plt.xlabel(r'$\mu/\mu_{c}$', fontsize=25)
+        plt.ylabel('corr', fontsize=25)
         plt.ylim(0, 1)
         plt.gca().yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
     plt.show()
 
-def compareAll_topK(networks, k):
+def compareAll_topK(k):
+    networks = ['Email', 'NS', 'USAir',
+                'Jazz', 'Oz',
+                'Router', 'Faa',
+                'figeys', 'Sex'
+                ]
     X = [x / 10.0 for x in range(10, 21)]
     fig, ax = plt.subplots(nrows=3, ncols=3)
     for i in range(len(networks)):
         print(networks[i])
-        if i < 3:
-            G = nx.read_edgelist('networks/' + networks[i])
-            G.name = networks[i]
-        else:
-            G = constructG(networks[i])
+        G = constructG(networks[i])
 
         k1 = 0.0
         k2 = 0.0
@@ -512,20 +567,21 @@ def compareAll_topK(networks, k):
             plt.legend(loc='best', fontsize=14)
         plt.xticks(fontsize=20)
         plt.yticks(fontsize=20)
-        plt.xlabel(r'$\mu/\mu_{c}$', fontsize=30)
-        plt.ylabel('Rs', fontsize=30)
+        plt.xlabel(r'$\mu/\mu_{c}$', fontsize=25)
+        plt.ylabel('Rs', fontsize=25)
         plt.ylim(0, 1)
         plt.gca().yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
     plt.show()
 
-def networkFeat(networks):
+def networkFeat():
+    networks = ['NS', 'USAir',
+                'Jazz', 'Email', 'Oz',
+                'Router', 'Faa',
+                'figeys', 'Sex'
+                ]
     for i in range(len(networks)):
         print(networks[i])
-        if i < 3:
-            G = nx.read_edgelist('networks/' + networks[i])
-            G.name = networks[i]
-        else:
-            G = constructG(networks[i])
+        G = constructG(networks[i])
         print(G.number_of_nodes(),G.number_of_edges())
         k=float(G.number_of_edges()*2)/G.number_of_nodes()
         print(k)#平均度
@@ -538,21 +594,55 @@ def networkFeat(networks):
         k2=k2/G.number_of_nodes()
         print(k2/k**2)
 
+def trainTime():#输出存放在ttt
+    RE = []
+    networks = ['BA1000_2', 'BA1000_5', 'BA1000_10',
+              'BA3000_2', 'BA3000_5', 'BA3000_10'
+              ]
+    # networks = ['BA1000_2']
+    L = [x for x in range(8, 48, 8)]
+    for i in range(len(networks)):
+        import time
+        G = nx.read_edgelist('networks/' + networks[i])
+        G.name = networks[i]
+        Seconds = []
+        for l in L:
+            train_dataset = Dataset(G.name, l, 1.5)
+            train_loader = DataLoader(train_dataset, batch_size=G.number_of_nodes(), shuffle=True)
+            nodes = list(G.nodes())
+            tt = time.time()
+            PredictNodeByCNN(nodes, train_loader, l, 1.5, G.name, True)
+            Seconds.append(time.time() - tt)
+        RE.append(Seconds)
+    print(RE)
 
 
-# if __name__ == '__main__':
+
+
+if __name__ == '__main__':
+    # G = nx.random_graphs.barabasi_albert_graph(3000, 10)
+    # nx.write_edgelist(G, 'networks/BA3000_10')
+
+
     # K = [x for x in range(8, 48, 4)]
     # X = [x / 10.0 for x in range(10, 21)]
-    # trains = ['BA1000_2', 'BA1000_5', 'BA1000_10']
+    # trains = ['BA1000_2', 'BA1000_5', 'BA1000_10'
+    #           'BA3000_2', 'BA3000_5', 'BA3000_10'
+    #           ]
     # networks = ['BA2000_2', 'BA2000_5', 'BA2000_10',
     #             'Jazz', 'Email', 'Oz',
     #             'Router', 'Faa', 'Facebook'
     #             ]
-    # draw_k(networks, 1.5)
-    # heatmap(networks)
-    # compareAll(networks)
-    # compareAll_topK(networks, 0.01)
-    # networkFeat(trains+networks)
+    # networks = ['BA4000_2', 'BA4000_5', 'BA4000_10',
+    #             'BA8000_2', 'BA8000_5', 'BA8000_10',
+    #             ]
+
+    # draw_k(1.5)
+    # heatmap()
+    compareAll()
+    # compareAll_topK(0.05)
+    # networkFeat()
+    # trainTime()
 
     # G = constructG('facebook')
     # print(degree(G))
@@ -563,27 +653,34 @@ def networkFeat(networks):
     # G.name = 'BA1000_2'
     # print(nx.is_connected(G))
     # print(G.number_of_nodes(), G.number_of_edges(), G.number_of_edges() * 2 / G.number_of_nodes())
+
+
     # for i in range(len(networks)):
-    #     if i<3:
-    #         G = nx.read_edgelist('networks/'+networks[i])
-    #         G.name = networks[i]
-    #     else:
-    #         G = constructG(networks[i])
-    #     k1 = 0.0
-    #     k2 = 0.0
-    #     for i in G.degree():
-    #         k1 = k1 + i[1]
-    #         k2 = k2 + i[1] ** 2
-    #     global UC
-    #     UC = k1 / (k2 - k1)
-    #
-    #     for x in X:
-    #         label = []
-    #         for node in G.nodes():
-    #             label.append([SIR(G, [node], x, 1)])
-    #         np.save('data_model_1/' + G.name + '_' + str(x) + '_label.npy', np.array(label))
-    #     print('标签生成成功')
-    #
+
+        # G = nx.read_edgelist('networks/'+networks[i])
+        # G.name = networks[i]
+        # G = constructG(networks[i])
+        # print(nx.is_connected(G))
+
+        # k1 = 0.0
+        # k2 = 0.0
+        # for i in G.degree():
+        #     k1 = k1 + i[1]
+        #     k2 = k2 + i[1] ** 2
+        # global UC
+        # UC = k1 / (k2 - k1)
+        #
+        #
+        # NeighborMatrix(G, 28)
+        # print('矩阵生成成功')
+        #
+        # for x in X:
+        #     label = []
+        #     for node in G.nodes():
+        #         label.append([SIR(G, [node], x, 1)])
+        #     np.save('data_model_1/' + G.name + '_' + str(x) + '_label.npy', np.array(label))
+        # print('标签生成成功')
+
 
 
     # 生成矩阵
